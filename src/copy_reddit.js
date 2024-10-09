@@ -54,9 +54,75 @@ async function cleanupPage() {
 }
 `;
 
+const extractionLogic = `
+function removeElementsByAttribute(attributeName, attributeValue) {
+  document.querySelectorAll('[' + attributeName + '="' + attributeValue + '"]')
+    .forEach(el => {
+      el.remove();
+    });
+}
+
+function removeElementAndReplaceWithText(selector) {
+  document.querySelectorAll(selector).forEach(el => {
+    el.replaceWith(el.textContent);
+  });
+}
+
+function getBoundingClientRect(element) {
+  return element.getBoundingClientRect();
+}
+
+function isElementInsideContainer(element, container) {
+  const elementRect = getBoundingClientRect(element);
+  const containerRect = getBoundingClientRect(container);
+
+  return (
+    elementRect.left >= containerRect.left &&
+    elementRect.right <= containerRect.right &&
+    elementRect.top >= containerRect.top &&
+    elementRect.bottom <= containerRect.bottom
+  );
+}
+
+function findDiscussionThreads(container) {
+  const threads = [];
+  const comments = container.querySelectorAll('*'); 
+  comments.forEach(comment => {
+    if (
+      comment.querySelector('.comment-content') 
+    ) {
+      if (isElementInsideContainer(comment, container)) {
+        threads.push(comment);
+      }
+    }
+  });
+
+  return threads;
+}
+
+function extractComments(thread) {
+  // Implement your logic to extract comments from each thread
+  // For example:
+  const commentContent = thread.querySelector('.comment-content').innerText;
+  return commentContent;
+}
+
+function extractDiscussionThreads() {
+  let discussionContainer = document.querySelector("#main-content");
+
+  if (discussionContainer) {
+    const threads = findDiscussionThreads(discussionContainer);
+
+    const extractedComments = threads.map(thread => extractComments(thread));
+    return extractedComments;
+  } else {
+    throw new Error("Couldn't find the main discussion container.");
+  }
+}
+`;
+
 async function initializeBrowser() {
   try {
-
     var agent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0";
     browser = await chromium.launch({
       headless: true,
@@ -92,7 +158,7 @@ async function openOneTab(url) {
 
     const readabilityScript = fs.readFileSync('./assets/Readability.js', 'utf8');
 
-    const article = await page.evaluate(async ({ read, clean }) => {
+    const result = await page.evaluate(async ({ read, clean, extract }) => {
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none'; // Hide the iframe
       document.body.appendChild(iframe);
@@ -113,23 +179,37 @@ async function openOneTab(url) {
       iframeWindow.eval(clean);
       await iframeWindow.cleanupPage(); // Call the cleanup function
 
-      iframeWindow.eval(read); // eval the readability script
+      iframeWindow.eval(read); // Evaluate the readability script
+
+      iframeWindow.eval(extract); // Evaluate the extraction logic
+
+      // Parse the article using Readability
+      let parsedArticle = null;
       if (typeof iframeWindow.Readability !== 'undefined') {
         const reader = new iframeWindow.Readability(iframeDoc, {
           nbTopCandidates: 30,
           charThreshold: 50,
           keepClasses: true
         });
-        const parsed = reader.parse();
-
-        iframe.parentNode.removeChild(iframe);
-        return parsed;
+        parsedArticle = reader.parse();
       } else {
         throw new Error('Readability is not available in the iframe document.');
       }
-    }, { read: readabilityScript, clean: cleanupFunctions }); // Wrap both scripts in an object
 
-    return article; // Return the parsed article
+      // Extract comments
+      let extractedComments = [];
+      if (typeof iframeWindow.extractDiscussionThreads === 'function') {
+        extractedComments = iframeWindow.extractDiscussionThreads();
+      } else {
+        throw new Error('extractDiscussionThreads function is not available.');
+      }
+
+      iframe.parentNode.removeChild(iframe);
+
+      return { article: parsedArticle, comments: extractedComments };
+    }, { read: readabilityScript, clean: cleanupFunctions, extract: extractionLogic });
+
+    return result; // Return the parsed article and comments
   } catch (err) {
     console.error("An error occurred:", err);
     return null;
@@ -140,23 +220,17 @@ async function openOneTab(url) {
   }
 }
 
-// var url = "https://agriculture.canada.ca/en/sector/animal-industry/red-meat-and-livestock-market-information/prices"; // Change as needed
-
-var url = "https://thestar.com/business/smug-canadian-superiority-complex-contributes-to-immigrant-talent-being-underused-study-says/article_425c60fe-84c8-11ef-8d5e-6318909c9203.html"; // Change as needed
-var url = "https://news.mydrivers.com/1/1007/1007009.htm";
-var url = "https://www.scmp.com/news/china/science/article/3281598/chinas-father-quantum-says-global-secure-communications-just-3-years-away?module=top_story&pgtype=homepage";
 var url = "https://www.reddit.com/r/debian/comments/1dcuqma/getting_rocm_installed_on_debian_12/";
 (async () => {
-  await initializeBrowser(); // Initialize the browser
-  const result = await openOneTab(url); // Open the tab and get the content
+  await initializeBrowser();
+  const result = await openOneTab(url);
 
   if (result) {
-    console.log("Title:", result.title);
-    console.log("Content:", result.content);
+    console.log("Extracted Article:", result.article);
+    console.log("Extracted Comments:", result.comments);
   } else {
-    console.log("Failed to extract the article.");
+    console.log("Failed to extract content.");
   }
 
-  await browser.close(); // Close the browser after work is done
+  await browser.close();
 })();
-
