@@ -99,7 +99,8 @@ function extractDiscussionThreads() {
         }
       }
 
-      if (textHeavyChildren > 5) { // If there are more than 5 text-heavy child elements
+      if (textHeavyChildren > 5) { 
+      console.log(el.textContent);
         return el;
       }
     }
@@ -161,7 +162,7 @@ async function initializeBrowser() {
     try {
         var agent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0";
         browser = await chromium.launch({
-            headless: true,
+            headless: false,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -234,13 +235,13 @@ async function openOneTab(url) {
         return null;
     } finally {
         if (page) {
-            await page.close(); // Close the page after use
+            // await page.close(); // Close the page after use
         }
     }
 }
 
 
-var url = "https://old.reddit.com/r/debian/comments/1dcuqm/getting_rocm_installed_on_debian_12/"; 
+var url ="https://www.reddit.com/r/debian/comments/1dcuqma/getting_rocm_installed_on_debian_12/";
 (async () => {
     await initializeBrowser();
     const result = await openOneTab(url);
@@ -251,5 +252,5 @@ var url = "https://old.reddit.com/r/debian/comments/1dcuqm/getting_rocm_installe
         console.log("Failed to extract comments.");
     }
 
-    await browser.close();
+    // await browser.close();
 })();
