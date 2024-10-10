@@ -3,58 +3,44 @@ import fs from 'fs';
 
 let browser;
 
-const cleanupFunctions = `
-async function waitForDynamicContent() {
-  return new Promise(resolve => {
-    const observer = new MutationObserver((mutations, obs) => {
-      if (document.body && document.body.innerHTML.length > 0) {
-        obs.disconnect();
-        resolve();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-    setTimeout(() => { observer.disconnect(); resolve(); }, 5000);
-  });
-}
-
-function removePopups() {
-  const selectors = [
-    '.popup', '.modal', '.overlay', '[class*="popup"]', 
-    '[class*="modal"]', '[id*="popup"]', '[id*="modal"]', 
-    '[style*="position:fixed"]', '[style*="position: fixed"]'
-  ];
-  selectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(el => el.remove());
-  });
-}
-
-function removeInfiniteScroll() {
-  window.onscroll = null;
-  document.onscroll = null;
-  window.removeEventListener('scroll', window.onscroll);
-  document.querySelectorAll('[data-infinite-scroll], [class*="infinite-scroll"]').forEach(el => el.remove());
-}
-
-function stopAnimations() {
-  const style = document.createElement('style');
-  style.textContent = '* { animation: none !important; transition: none !important; }';
-  document.head.appendChild(style);
-}
-
-function removeScripts() {
-  document.querySelectorAll('script:not([type="application/ld+json"])').forEach(script => script.remove());
-}
-
 async function cleanupPage() {
-  await waitForDynamicContent();
+
+  function removePopups() {
+    const selectors = [
+      '.popup', '.modal', '.overlay', '[class*="popup"]',
+      '[class*="modal"]', '[id*="popup"]', '[id*="modal"]',
+      '[style*="position:fixed"]', '[style*="position: fixed"]'
+    ];
+    selectors.forEach(selector => {
+      document.querySelectorAll(selector).forEach(el => el.remove());
+    });
+  }
+
+  function removeInfiniteScroll() {
+    window.onscroll = null;
+    document.onscroll = null;
+    window.removeEventListener('scroll', window.onscroll);
+    document.querySelectorAll('[data-infinite-scroll], [class*="infinite-scroll"]').forEach(el => el.remove());
+  }
+
+  function stopAnimations() {
+    const style = document.createElement('style');
+    style.textContent = '* { animation: none !important; transition: none !important; }';
+    document.head.appendChild(style);
+  }
+
+  function removeScripts() {
+    document.querySelectorAll('script:not([type="application/ld+json"])').forEach(script => script.remove());
+  }
+
   removePopups();
   removeInfiniteScroll();
   stopAnimations();
   removeScripts();
 }
-`;
 
-const extractionLogic = `
+const cleanupFunctions = cleanupPage.toString();
+
 function extractDiscussionThreads() {
   function isVisible(el) {
     const style = window.getComputedStyle(el);
@@ -74,7 +60,7 @@ function extractDiscussionThreads() {
   function containsCommentKeyword(el) {
     const className = el.className || '';
     const id = el.id || '';
-    const classAndId = \`\${className} \${id}\`.toLowerCase();
+    const classAndId = `${className} ${id}`.toLowerCase();
     return classAndId.includes('comment');
   }
 
@@ -114,20 +100,19 @@ function extractDiscussionThreads() {
       });
 
       if (commentChildren.length > 0 && getTextContentLength(el) > 0) {
-        // Found the discussion container
         console.log("Found container with immediate comment-like children.");
-        console.log(\`  Tag: \${el.tagName}\`);
-        console.log(\`  ID: \${el.id}\`);
-        console.log(\`  Class: \${el.className}\`);
+        console.log(`  Tag: ${el.tagName}`);
+        console.log(`  ID: ${el.id}`);
+        console.log(`  Class: ${el.className}`);
         return el;
       }
     }
 
     console.log("Using highest scoring element as discussion container.");
     const el = candidates[0].element;
-    console.log(\`  Tag: \${el.tagName}\`);
-    console.log(\`  ID: \${el.id}\`);
-    console.log(\`  Class: \${el.className}\`);
+    console.log(`  Tag: ${el.tagName}`);
+    console.log(`  ID: ${el.id}`);
+    console.log(`  Class: ${el.className}`);
     return el;
   }
 
@@ -141,7 +126,8 @@ function extractDiscussionThreads() {
 
   return discussionText;
 }
-`;
+
+const extractionLogic = extractDiscussionThreads.toString();
 
 async function initializeBrowser() {
   try {
@@ -208,7 +194,9 @@ async function openOneTab(url) {
   }
 }
 
-const url = "https://www.reddit.com/r/LocalLLaMA/comments/1g0jehn/ive_been_working_on_this_for_6_months_free_easy/";
+var url = "https://www.reddit.com/r/LocalLLaMA/comments/1g0jehn/ive_been_working_on_this_for_6_months_free_easy/";
+var url = "https://huaren.us/showtopic.html?topicid=3053496";
+var url = "https://newmitbbs.com/viewtopic.php?f=18&t=608671&sid=3e44eab4cb1d52f567a2f4a257a2dab5";
 
 (async () => {
   await initializeBrowser();
@@ -217,7 +205,6 @@ const url = "https://www.reddit.com/r/LocalLLaMA/comments/1g0jehn/ive_been_worki
   if (result) {
     console.log("Extracted Comments:", result.comments);
 
-    // Write the extracted comments to a file
     fs.writeFileSync('discussion_text.txt', result.comments, 'utf8');
   } else {
     console.log("Failed to extract comments.");
