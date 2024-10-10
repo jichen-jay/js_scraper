@@ -8,10 +8,16 @@ function extractDiscussionContent() {
   const { document } = window;
 
   function isVisible(el) {
-    // Implement visibility checks if needed
-    return true; // For simplicity, we assume all elements are visible
+    const style = window.getComputedStyle(el);
+    return (
+      style &&
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      el.offsetWidth > 0 &&
+      el.offsetHeight > 0
+    );
   }
-
+  
   function getTextContentLength(el) {
     return el.textContent ? el.textContent.trim().length : 0;
   }

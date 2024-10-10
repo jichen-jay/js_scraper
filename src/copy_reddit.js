@@ -68,80 +68,67 @@ function extractDiscussionThreads() {
   }
 
   function getTextContentLength(el) {
-    return el.innerText ? el.innerText.trim().length : 0;
+    return el.textContent ? el.textContent.trim().length : 0;
+  }
+
+  function containsCommentKeyword(el) {
+    const className = el.className || '';
+    const id = el.id || '';
+    const classAndId = \`\${className} \${id}\`.toLowerCase();
+    return classAndId.includes('comment');
   }
 
   function findDiscussionContainer() {
     const bodyElements = Array.from(document.body.getElementsByTagName('*')).filter(isVisible);
 
     const candidates = bodyElements.map(el => {
-      const rect = el.getBoundingClientRect();
-      const area = rect.width * rect.height;
       const textLength = getTextContentLength(el);
-      const childElementCounts = el.querySelectorAll('*').length;
+      const immediateChildren = Array.from(el.children);
 
-      const score = area * 0.5 + textLength * 2 + childElementCounts * 10;
+      const immediateChildCount = immediateChildren.length;
+
+      const numberOfCommentChildren = immediateChildren.filter(child => {
+        return containsCommentKeyword(child) && isVisible(child) && getTextContentLength(child) > 0;
+      }).length;
+
+      const score =
+        textLength * 1 +
+        immediateChildCount * 10 +
+        numberOfCommentChildren * 100;
 
       return { element: el, score: score };
     });
 
+    if (candidates.length === 0) {
+      console.error("No candidate elements found.");
+      throw new Error("Couldn't find the discussion container.");
+    }
+
     candidates.sort((a, b) => b.score - a.score);
 
-    for (let i = 0; i < Math.min(10, candidates.length); i++) {
+    for (let i = 0; i < candidates.length; i++) {
       const el = candidates[i].element;
 
-      const childElements = Array.from(el.children).filter(isVisible);
-      let textHeavyChildren = 0;
-      for (let child of childElements) {
-        const childTextLength = getTextContentLength(child);
-        if (childTextLength > 50) { // Arbitrary threshold for significant text content
-          textHeavyChildren++;
-        }
-      }
+      const commentChildren = Array.from(el.children).filter(child => {
+        return containsCommentKeyword(child) && isVisible(child) && getTextContentLength(child) > 0;
+      });
 
-      if (textHeavyChildren > 5) { 
-      console.log(el.textContent);
+      if (commentChildren.length > 0 && getTextContentLength(el) > 0) {
+        // Found the discussion container
+        console.log("Found container with immediate comment-like children.");
+        console.log(\`  Tag: \${el.tagName}\`);
+        console.log(\`  ID: \${el.id}\`);
+        console.log(\`  Class: \${el.className}\`);
         return el;
       }
     }
 
-    return null;
-  }
-
-  function extractComments(element, depth = 0) {
-    const comments = [];
-    const MAX_DEPTH = 10; // Limit recursion depth to prevent infinite loops
-
-    if (depth > MAX_DEPTH) {
-      return comments;
-    }
-
-    const childNodes = Array.from(element.childNodes).filter(isVisible);
-
-    for (let node of childNodes) {
-      if (node.nodeType === Node.TEXT_NODE) {
-        continue; // Skip text nodes directly under the parent
-      }
-
-      const textContent = node.innerText ? node.innerText.trim() : '';
-      const textLength = textContent.length;
-
-      if (textLength > 50 && textLength < 1000) {
-        const childComments = extractComments(node, depth + 1);
-        comments.push({
-          content: textContent,
-          replies: childComments
-        });
-      } else {
-        // Recurse into child elements to find comments
-        const childComments = extractComments(node, depth + 1);
-        if (childComments.length > 0) {
-          comments.push(...childComments);
-        }
-      }
-    }
-
-    return comments;
+    console.log("Using highest scoring element as discussion container.");
+    const el = candidates[0].element;
+    console.log(\`  Tag: \${el.tagName}\`);
+    console.log(\`  ID: \${el.id}\`);
+    console.log(\`  Class: \${el.className}\`);
+    return el;
   }
 
   const discussionContainer = findDiscussionContainer();
@@ -150,107 +137,91 @@ function extractDiscussionThreads() {
     throw new Error("Couldn't find the discussion container.");
   }
 
-  const threads = extractComments(discussionContainer);
+  const discussionText = discussionContainer.innerText.trim();
 
-  return threads;
+  return discussionText;
 }
 `;
 
-
-
 async function initializeBrowser() {
-    try {
-        var agent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0";
-        browser = await chromium.launch({
-            headless: false,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-extensions',
-                `--user-agent=${agent}`,
-                '--window-size=768,1024',
-                '--force-device-scale-factor=1',
-                '--disk-cache-dir=/dev/shm/chrome-cache',
-            ]
-        });
-        console.log("Browser launched.");
-    } catch (error) {
-        console.error("Failed to launch the browser:", error);
-        process.exit(1);
-    }
+  try {
+    var agent = "Mozilla/5.0 (Windows NT 5.1; rv:31.0) Gecko/20100101 Firefox/31.0";
+    browser = await chromium.launch({
+      headless: false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-extensions',
+        `--user-agent=${agent}`,
+        '--window-size=768,1024',
+        '--force-device-scale-factor=1',
+        '--disk-cache-dir=/dev/shm/chrome-cache',
+      ]
+    });
+    console.log("Browser launched.");
+  } catch (error) {
+    console.error("Failed to launch the browser:", error);
+    process.exit(1);
+  }
 }
 
 async function openOneTab(url) {
-    const TIMEOUT = 30000; // 30 seconds timeout
-    let page;
+  const TIMEOUT = 30000; // 30 seconds timeout
+  let page;
 
-    try {
-        page = await browser.newPage();
+  try {
+    page = await browser.newPage();
 
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+    page.on('console', msg => {
+      console.log(`[PAGE] ${msg.text()}`);
+    });
 
-        await page.evaluate(() => {
-            window.stop();
-        });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
 
-        const result = await page.evaluate(async ({ clean, extract }) => {
-            const iframe = document.createElement('iframe');
-            iframe.style.display = 'none'; // Hide the iframe
-            document.body.appendChild(iframe);
-
-            const iframeWindow = iframe.contentWindow;
-            const iframeDoc = iframe.contentDocument || iframeWindow.document;
-
-            iframeDoc.open();
-            iframeDoc.write('<!DOCTYPE html><html><head></head><body></body></html>');
-            iframeDoc.close();
-
-            iframeDoc.body.innerHTML = document.body.innerHTML;
-
-            iframeWindow.Image = function () { };
-            iframeWindow.fetch = function () { };
-            iframeWindow.XMLHttpRequest = function () { };
-
-            iframeWindow.eval(clean);
-            await iframeWindow.cleanupPage(); // Call the cleanup function
-
-            iframeWindow.eval(extract); // Evaluate the extraction logic
-
-            let extractedComments = [];
-            if (typeof iframeWindow.extractDiscussionThreads === 'function') {
-                extractedComments = iframeWindow.extractDiscussionThreads();
-            } else {
-                throw new Error('extractDiscussionThreads function is not available.');
-            }
-
-            iframe.parentNode.removeChild(iframe);
-
-            return { comments: extractedComments };
-        }, { clean: cleanupFunctions, extract: extractionLogic });
-
-        return result; // Return the parsed article and comments
-    } catch (err) {
-        console.error("An error occurred:", err);
-        return null;
-    } finally {
-        if (page) {
-            // await page.close(); // Close the page after use
+    const result = await page.evaluate(async ({ clean, extract }) => {
+      if (clean) {
+        eval(clean);
+        if (typeof cleanupPage === 'function') {
+          await cleanupPage();
         }
+      }
+
+      eval(extract);
+
+      if (typeof extractDiscussionThreads === 'function') {
+        const extractedData = extractDiscussionThreads();
+        return extractedData;
+      } else {
+        throw new Error('extractDiscussionThreads function is not available.');
+      }
+    }, { clean: cleanupFunctions, extract: extractionLogic });
+
+    return { comments: result }; // Return the extracted discussion text
+  } catch (err) {
+    console.error("An error occurred:", err);
+    return null;
+  } finally {
+    if (page) {
+      await page.close(); // Close the page after use
     }
+  }
 }
 
+const url = "https://www.reddit.com/r/LocalLLaMA/comments/1g0jehn/ive_been_working_on_this_for_6_months_free_easy/";
 
-var url ="https://www.reddit.com/r/debian/comments/1dcuqma/getting_rocm_installed_on_debian_12/";
 (async () => {
-    await initializeBrowser();
-    const result = await openOneTab(url);
+  await initializeBrowser();
+  const result = await openOneTab(url);
 
-    if (result) {
-        console.log("Extracted Comments:", JSON.stringify(result, null, 2));
-    } else {
-        console.log("Failed to extract comments.");
-    }
+  if (result) {
+    console.log("Extracted Comments:", result.comments);
 
-    // await browser.close();
+    // Write the extracted comments to a file
+    fs.writeFileSync('discussion_text.txt', result.comments, 'utf8');
+  } else {
+    console.log("Failed to extract comments.");
+  }
+
+  await browser.close();
 })();
